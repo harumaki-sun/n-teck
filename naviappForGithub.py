@@ -4,8 +4,8 @@ import pandas as pd
 import os
 import io
 import json
-import threading  # 裏側で実行するために追加
-from datetime import datetime
+import threading
+from datetime import datetime, timedelta  # timedeltaを追加
 from flask import Flask, jsonify
 import gspread
 
@@ -113,7 +113,6 @@ async def fetch_bus_data(session, bus_no, semaphore):
         except:
             return bus_no, None, None
 
-# バックグラウンドで実行される実際の処理
 def wrapper_run_scraping():
     try:
         loop = asyncio.new_event_loop()
@@ -148,9 +147,19 @@ async def run_scraping_job():
     
     creds_dict = json.loads(credentials_json)
     gc = gspread.service_account_from_dict(creds_dict)
-    
     sh = gc.open(SPREADSHEET_NAME)
-    worksheet = sh.sheet1
+    
+    # 💡【重要】朝3時を日付変更線とする処理
+    # 現在時刻から3時間を引いた日付を「シート名(YYYY-MM-DD)」として採用する
+    target_date = (datetime.now() - timedelta(hours=3)).strftime('%Y-%m-%d')
+    
+    # 指定した日付のシートを取得、なければ新しく作成する
+    try:
+        worksheet = sh.worksheet(target_date)
+    except gspread.exceptions.WorksheetNotFound:
+        # シートが存在しない場合は、1行2000列(適宜)の空シートを新規作成
+        worksheet = sh.add_worksheet(title=target_date, rows="100", cols="2000")
+        print(f"Created new worksheet: {target_date}")
     
     existing_data = worksheet.get_all_values()
     if existing_data:
@@ -203,16 +212,12 @@ async def run_scraping_job():
         
         worksheet.clear()
         worksheet.update(data_to_write)
-        print(f"Update & Sorted: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Update & Sorted on sheet [{target_date}]: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-# cron-job.org から叩かれるエンドポイント
 @app.route('/run-scraping', methods=['GET'])
 def run_scraping():
-    # スレッドを新しく立ち上げて、スクレイピング処理を裏で走らせる
     thread = threading.Thread(target=wrapper_run_scraping)
     thread.start()
-    
-    # 処理の終了を待たずに、即座にcron-job.orgに応答を返す（タイムアウト回避）
     return jsonify({
         "status": "success", 
         "message": "Scraping job started in background."
