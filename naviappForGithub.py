@@ -4,6 +4,7 @@ import pandas as pd
 import os
 import io
 import json
+import threading  # 裏側で実行するために追加
 from datetime import datetime
 from flask import Flask, jsonify
 import gspread
@@ -11,7 +12,6 @@ import gspread
 app = Flask(__name__)
 
 # --- 設定項目 ---
-# スプレッドシート名（あらかじめ作成しておいてください）
 SPREADSHEET_NAME = 'naviapp_sheet' 
 TEI_MASTER_FILE = 'tei.20260326.csv'
 BASE_URL = "https://jik.nishitetsu.jp/jikoku/naviapp/busnavi"
@@ -21,7 +21,7 @@ MAX_CONCURRENT_REQUESTS = 30
 BUS_RANGES = [
     (351, 352, 4), (371, 377, 3), (21, 26, 2), (27, 27, 3),
     (101, 107, 4), (201, 212, 4), (218, 221, 4), (701, 704, 4),
-    (2002, 2005, 4), (2010, 2050, 4), (2101, 2120, 4), (2130, 2133, 4),
+    (2002, 2005, 4), (2010, 2099, 4), (2101, 2120, 4), (2130, 2133, 4),
     (2261, 2279, 4), (2301, 2301, 4), (2350, 2358, 4), (2401, 2434, 4),
     (2501, 2536, 4), (2601, 2616, 4), (2660, 2694, 4), (2698, 2701, 4), (2710, 2814, 4),
     (2830, 2886, 4), (2902, 2944, 4), (2958, 2983, 4), 
@@ -113,7 +113,17 @@ async def fetch_bus_data(session, bus_no, semaphore):
         except:
             return bus_no, None, None
 
-# メインのスクレイピング処理を関数化
+# バックグラウンドで実行される実際の処理
+def wrapper_run_scraping():
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(run_scraping_job())
+        loop.close()
+        print("Background task finished successfully.")
+    except Exception as e:
+        print(f"Background task failed: {str(e)}")
+
 async def run_scraping_job():
     raw_bus_list = []
     for s, e, d in BUS_RANGES:
@@ -131,24 +141,20 @@ async def run_scraping_job():
 
     bus_list = list(dict.fromkeys(raw_bus_list))
 
-    # --- Googleスプレッドシートの読み込み ---
-    # 環境変数からGoogle認証情報を取得
     credentials_json = os.environ.get("GCP_CREDENTIALS")
     if not credentials_json:
-        raise Exception("GCP_CREDENTIALS environment variable is not set.")
+        print("Error: GCP_CREDENTIALS environment variable is not set.")
+        return
     
     creds_dict = json.loads(credentials_json)
     gc = gspread.service_account_from_dict(creds_dict)
     
-    # スプレッドシートを開く（あらかじめ作成しておく）
     sh = gc.open(SPREADSHEET_NAME)
     worksheet = sh.sheet1
     
-    # 全データを一度に取得してDataFrame化
     existing_data = worksheet.get_all_values()
     if existing_data:
         df = pd.DataFrame(existing_data[1:], columns=existing_data[0])
-        # スプレッドシートの空セルは空文字になるためNoneに統一
         df = df.replace('', None)
     else:
         df = pd.DataFrame()
@@ -192,33 +198,25 @@ async def run_scraping_job():
         sorted_columns = [k[0] for k in sorted(sorting_keys, key=lambda x: (x[1], x[0]))]
         df = df.reindex(columns=sorted_columns)
         
-        # --- Googleスプレッドシートへの書き込み ---
-        # Noneを空文字に戻す
         df_to_save = df.fillna('')
-        # ヘッダーとデータを結合したリストを作成
         data_to_write = [df_to_save.columns.values.tolist()] + df_to_save.values.tolist()
         
-        # シートを一回クリアして上書き
         worksheet.clear()
         worksheet.update(data_to_write)
-        
-        msg = f"Update & Sorted: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        print(msg)
-        return msg
-    return "No update required."
+        print(f"Update & Sorted: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 # cron-job.org から叩かれるエンドポイント
 @app.route('/run-scraping', methods=['GET'])
 def run_scraping():
-    try:
-        # Flask内で安全にasync関数を実行する
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        message = loop.run_until_complete(run_scraping_job())
-        loop.close()
-        return jsonify({"status": "success", "message": message}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+    # スレッドを新しく立ち上げて、スクレイピング処理を裏で走らせる
+    thread = threading.Thread(target=wrapper_run_scraping)
+    thread.start()
+    
+    # 処理の終了を待たずに、即座にcron-job.orgに応答を返す（タイムアウト回避）
+    return jsonify({
+        "status": "success", 
+        "message": "Scraping job started in background."
+    }), 200
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
