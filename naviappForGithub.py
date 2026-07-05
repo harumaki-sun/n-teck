@@ -214,14 +214,14 @@ async def run_scraping_job():
         worksheet.update(data_to_write)
         print(f"Update & Sorted on sheet [{target_date}]: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
+# ⬇️ 【修正後】こちらに書き換えてください
 @app.route('/run-scraping', methods=['GET'])
 def run_scraping():
     thread = threading.Thread(target=wrapper_run_scraping)
     thread.start()
-    return jsonify({
-        "status": "success", 
-        "message": "Scraping job started in background."
-    }), 200
+    
+    # 文字列を完全に空にして返すことで、cron-job.orgの容量制限を確実に回避します
+    return "", 200
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
