@@ -5,19 +5,14 @@ import os
 import io
 import json
 from datetime import datetime, timedelta
-from flask import Flask, jsonify
 import gspread
-
-app = Flask(__name__)
 
 # --- 設定項目 ---
 SPREADSHEET_NAME = 'naviapp_sheet' 
 TEI_MASTER_FILE = 'tei.20260326.csv'
 BASE_URL = "https://jik.nishitetsu.jp/jikoku/naviapp/busnavi"
 AWS_BASE_URL = "https://s3-ap-northeast-1.amazonaws.com/nishitetsu-api/kaishibi4"
-
-# 💡 同時並行アクセス数を「30」から「150」に引き上げ、全体の処理を10秒前後に超高速化！
-MAX_CONCURRENT_REQUESTS = 150 
+MAX_CONCURRENT_REQUESTS = 150  # 高速化のため150のままにします
 
 BUS_RANGES = [
     (351, 352, 4), (371, 377, 3), (21, 26, 2), (27, 27, 3),
@@ -133,12 +128,14 @@ async def run_scraping_job():
 
     credentials_json = os.environ.get("GCP_CREDENTIALS")
     if not credentials_json:
-        return "Error: GCP_CREDENTIALS not set"
+        print("Error: GCP_CREDENTIALS not set")
+        return
     
     creds_dict = json.loads(credentials_json)
     gc = gspread.service_account_from_dict(creds_dict)
     sh = gc.open(SPREADSHEET_NAME)
     
+    # 朝3時日付変更線ロジック
     target_date = (datetime.now() - timedelta(hours=3)).strftime('%Y-%m-%d')
     
     try:
@@ -197,19 +194,10 @@ async def run_scraping_job():
         
         worksheet.clear()
         worksheet.update(data_to_write)
-        return f"Success: Updated sheet [{target_date}]"
-    return "Success: No update needed"
-
-# 💡【重要】普通にアクセスを待ち受け、処理が完全に終わってから「OK」とだけシンプルに返す
-@app.route('/run-scraping', methods=['GET'])
-def run_scraping():
-    try:
-        # その場でスクレイピングを同期実行（10秒前後で終わります）
-        msg = asyncio.run(run_scraping_job())
-        return jsonify({"status": "success", "message": msg}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        print(f"Success: Updated sheet [{target_date}]")
+    else:
+        print("No update needed")
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    # 直接非同期ジョブを実行
+    asyncio.run(run_scraping_job())
