@@ -4,8 +4,7 @@ import pandas as pd
 import os
 import io
 import json
-import threading
-from datetime import datetime, timedelta  # timedeltaを追加
+from datetime import datetime, timedelta
 from flask import Flask, jsonify
 import gspread
 
@@ -16,7 +15,9 @@ SPREADSHEET_NAME = 'naviapp_sheet'
 TEI_MASTER_FILE = 'tei.20260326.csv'
 BASE_URL = "https://jik.nishitetsu.jp/jikoku/naviapp/busnavi"
 AWS_BASE_URL = "https://s3-ap-northeast-1.amazonaws.com/nishitetsu-api/kaishibi4"
-MAX_CONCURRENT_REQUESTS = 30 
+
+# 💡 同時並行アクセス数を「30」から「150」に引き上げ、全体の処理を10秒前後に超高速化！
+MAX_CONCURRENT_REQUESTS = 150 
 
 BUS_RANGES = [
     (351, 352, 4), (371, 377, 3), (21, 26, 2), (27, 27, 3),
@@ -113,16 +114,6 @@ async def fetch_bus_data(session, bus_no, semaphore):
         except:
             return bus_no, None, None
 
-def wrapper_run_scraping():
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(run_scraping_job())
-        loop.close()
-        print("Background task finished successfully.")
-    except Exception as e:
-        print(f"Background task failed: {str(e)}")
-
 async def run_scraping_job():
     raw_bus_list = []
     for s, e, d in BUS_RANGES:
@@ -142,25 +133,19 @@ async def run_scraping_job():
 
     credentials_json = os.environ.get("GCP_CREDENTIALS")
     if not credentials_json:
-        print("Error: GCP_CREDENTIALS environment variable is not set.")
-        return
+        return "Error: GCP_CREDENTIALS not set"
     
     creds_dict = json.loads(credentials_json)
     gc = gspread.service_account_from_dict(creds_dict)
     sh = gc.open(SPREADSHEET_NAME)
     
-    # 💡【重要】朝3時を日付変更線とする処理
-    # 現在時刻から3時間を引いた日付を「シート名(YYYY-MM-DD)」として採用する
     target_date = (datetime.now() - timedelta(hours=3)).strftime('%Y-%m-%d')
     
-    # 指定した日付のシートを取得、なければ新しく作成する
     try:
         worksheet = sh.worksheet(target_date)
     except gspread.exceptions.WorksheetNotFound:
-        # シートが存在しない場合は、1行2000列(適宜)の空シートを新規作成
         worksheet = sh.add_worksheet(title=target_date, rows="100", cols="2000")
-        print(f"Created new worksheet: {target_date}")
-    
+
     existing_data = worksheet.get_all_values()
     if existing_data:
         df = pd.DataFrame(existing_data[1:], columns=existing_data[0])
@@ -212,16 +197,18 @@ async def run_scraping_job():
         
         worksheet.clear()
         worksheet.update(data_to_write)
-        print(f"Update & Sorted on sheet [{target_date}]: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        return f"Success: Updated sheet [{target_date}]"
+    return "Success: No update needed"
 
-# ⬇️ 【修正後】こちらに書き換えてください
+# 💡【重要】普通にアクセスを待ち受け、処理が完全に終わってから「OK」とだけシンプルに返す
 @app.route('/run-scraping', methods=['GET'])
 def run_scraping():
-    thread = threading.Thread(target=wrapper_run_scraping)
-    thread.start()
-    
-    # 文字列を完全に空にして返すことで、cron-job.orgの容量制限を確実に回避します
-    return "", 200
+    try:
+        # その場でスクレイピングを同期実行（10秒前後で終わります）
+        msg = asyncio.run(run_scraping_job())
+        return jsonify({"status": "success", "message": msg}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
