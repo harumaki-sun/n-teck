@@ -1,6 +1,4 @@
-flask
 aiohttp
 pandas
 gspread
-gunicorn
 openpyxl
