@@ -1,0 +1,26 @@
+name: Run Bus Scraping
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [run-scraping]  # cron-job.org からのWebhook（API）呼び出しを受け取る設定
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - name: Run Scraping Script
+        env:
+          # 💡 今回提供した main.py の os.environ.get("GCP_CREDENTIALS") に合わせて変更
+          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+        # 💡 実行するスクリプト名を main.py に変更
+        run: python naviappForGithub.py
