@@ -115,17 +115,17 @@ async def fetch_bus_data(session, bus_no, semaphore):
             return bus_no, None, None
 
 async def run_scraping_job():
-    # 💡【新機能】0:05 〜 4:55 の間はスクレイピングを実行せずに終了する
+    # 💡【新機能】0:05 〜 4:25 の間はスクレイピングを実行せずに終了する
     now = datetime.now()
     current_time = now.time()
     
     # 判定用の時間オブジェクトを作成 (0時5分 と 4時55分)
     start_skip = datetime.strptime("00:05", "%H:%M").time()
-    end_skip = datetime.strptime("04:55", "%H:%M").time()
+    end_skip = datetime.strptime("04:25", "%H:%M").time()
     
     # 現在の時刻が 0:05 以降、かつ 4:55 以前であるか判定
     if start_skip <= current_time <= end_skip:
-        print(f"Skipping job: Current time ({now.strftime('%H:%M')}) is within the maintenance window (00:05 - 04:55).")
+        print(f"Skipping job: Current time ({now.strftime('%H:%M')}) is within the maintenance window (00:05 - 04:25).")
         return "Success: Skipped within maintenance window"
     #ここからは既存処理
     raw_bus_list = []
