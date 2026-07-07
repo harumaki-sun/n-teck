@@ -8,6 +8,25 @@ from datetime import datetime, timedelta
 import gspread
 import time
 
+# =========================
+# 深夜帯は実行しない
+# =========================
+
+jst = ZoneInfo("Asia/Tokyo")
+now = datetime.now(jst)
+
+from datetime import time
+
+current_time = now.time()
+
+if (
+    current_time >= time(23, 50)
+    or
+    current_time < time(4, 55)
+):
+    print("運行終了時間帯のため終了")
+    raise SystemExit
+
 # --- 設定項目 ---
 SPREADSHEET_NAME = 'naviapp_sheet' 
 TEI_MASTER_FILE = 'tei.20260326.csv'
