@@ -72,6 +72,8 @@ async def get_human_readable_info(session, raw_data):
         route_code = keito[:3]
         run_id = f"{keito}-{bin_no}"
         clean_date = use_date.replace('-', '')
+        
+        //ここを変える！
         csv_url = f"{AWS_BASE_URL}/{clean_date}/{jigyosha}/{keito}_1.csv"
         
         async with session.get(csv_url, timeout=5) as response:
