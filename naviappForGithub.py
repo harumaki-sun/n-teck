@@ -6,6 +6,7 @@ import io
 import json
 from datetime import datetime, timedelta
 import gspread
+import time
 
 # --- 設定項目 ---
 SPREADSHEET_NAME = 'naviapp_sheet' 
@@ -195,9 +196,20 @@ async def run_scraping_job():
         df_to_save = df.fillna('')
         data_to_write = [df_to_save.columns.values.tolist()] + df_to_save.values.tolist()
         
-        worksheet.clear()
-        worksheet.update(data_to_write)
-        print(f"Success: Updated sheet [{target_date}]")
+        # 💡【通信エラー対策】Google側が切断しても3回まで自動リトライする仕組み
+        for attempt in range(3):
+            try:
+                worksheet.clear()
+                worksheet.update(data_to_write)
+                print(f"Success: Updated sheet [{target_date}]")
+                break  # 正常に書き込めたら、リトライのループを抜けて終了します
+            except Exception as e:
+                if attempt < 2:
+                    print(f"Google通信エラーのため、5秒後に再試行します... (リトライ {attempt + 1}/2): {str(e)}")
+                    time.sleep(5)
+                else:
+                    print("3回リトライしましたが、Googleへの書き込みに失敗しました。")
+                    raise e  # 3回とも失敗した場合は、諦めてエラーログを残します
     else:
         print("No update needed")
 
