@@ -22,5 +22,6 @@ jobs:
         env:
           # 💡 今回提供した main.py の os.environ.get("GCP_CREDENTIALS") に合わせて変更
           GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+          TZ: Asia/Tokyo
         # 💡 実行するスクリプト名を main.py に変更
         run: python naviappForGithub.py
