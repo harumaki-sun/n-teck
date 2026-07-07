@@ -5,28 +5,9 @@ import os
 import io
 import json
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 import gspread
 import time
 
-# =========================
-# 深夜帯は実行しない
-# =========================
-
-jst = ZoneInfo("Asia/Tokyo")
-now = datetime.now(jst)
-
-from datetime import time
-
-current_time = now.time()
-
-if (
-    current_time >= time(23, 50)
-    or
-    current_time < time(4, 55)
-):
-    print("運行終了時間帯のため終了")
-    raise SystemExit
 
 # --- 設定項目 ---
 SPREADSHEET_NAME = 'naviapp_sheet' 
@@ -134,6 +115,19 @@ async def fetch_bus_data(session, bus_no, semaphore):
             return bus_no, None, None
 
 async def run_scraping_job():
+    # 💡【新機能】0:05 〜 4:55 の間はスクレイピングを実行せずに終了する
+    now = datetime.now()
+    current_time = now.time()
+    
+    # 判定用の時間オブジェクトを作成 (0時5分 と 4時55分)
+    start_skip = datetime.strptime("00:05", "%H:%M").time()
+    end_skip = datetime.strptime("04:55", "%H:%M").time()
+    
+    # 現在の時刻が 0:05 以降、かつ 4:55 以前であるか判定
+    if start_skip <= current_time <= end_skip:
+        print(f"Skipping job: Current time ({now.strftime('%H:%M')}) is within the maintenance window (00:05 - 04:55).")
+        return "Success: Skipped within maintenance window"
+    #ここからは既存処理
     raw_bus_list = []
     for s, e, d in BUS_RANGES:
         if isinstance(s, str):
