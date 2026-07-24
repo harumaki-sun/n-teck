@@ -77,7 +77,7 @@ async def get_human_readable_info(session, raw_data):
         clean_date = use_date.replace('-', '')
         
         #ここを変える！！！！
-        csv_url = f"{AWS_BASE_URL}/{clean_date}/{jigyosha}/{keito}_1.csv"
+        csv_url = f"{AWS_BASE_URL}/{clean_date}/{jigyosha}/{keito}_2.csv"
         
         async with session.get(csv_url, timeout=5) as response:
             if response.status != 200: 
